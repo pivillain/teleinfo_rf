@@ -1,21 +1,3 @@
-/* Ce programme a été élaboré à partir du code de M. Olivier LEBRUN réutilisé en grande partie pour réaliser un encodeur OWL CM180 (Micro+)
-  /* ainsi qu'à partir du code (+ carte électronique à relier au compteur) de M. Pascal CARDON pour la partie téléinfo
-  /* Onlinux a fourni des trames du OWL CM180 me permettant de faire les algo d'encodage (il a développer un code de décodage des trames)
-  /* Je remercie les auteurs. Ci-dessous les liens vers leur site internet.
-  /*=======================================================================================================================
-  ONLINUX :   Decode and parse the Oregon Scientific V3 radio data transmitted by OWL CM180 Energy sensor (433.92MHz)
-  References :
-  http://blog.onlinux.fr
-  https://github.com/onlinux/OWL-CMR180
-  http://domotique.web2diz.net/?p=11
-  http://www.domotique-info.fr/2014/05/recuperer-teleinformation-arduino/
-  http://connectingstuff.net/blog/encodage-protocoles-oregon-scientific-sur-arduino/
-  /*=======================================================================================================================
-  /*
-   connectingStuff, Oregon Scientific v2.1 Emitter
-   http://connectingstuff.net/blog/encodage-protocoles-oregon-scientific-sur-arduino/
-
-   Copyright (C) 2013 olivier.lebrun@gmail.com
 
   /*=======================================================================================================================
                                                         my_teleinfo
@@ -29,13 +11,18 @@
           See ref here : http://domotique.web2diz.net/?p=11#
   montage électronique conforme à http://www.domotique-info.fr/2014/05/recuperer-teleinformation-arduino/
   ======================================================================================================================*/
+  /*======================================================================================================================
+   * Adaptations pour photovoltaique Trame Teleinfo pas de données dans HPHC mais dans base
+   * Analyse de la trame teleinfo basee sur String
+  ======================================================================================================================*/
 
 
 
 #include <SoftwareSerial.h>
 // PIN SIETTINGS //
 const byte TELEINFO_PIN = 8;   //Connexion TELEINFO
-const byte TX_PIN = 3;         //emetteur 433 MHZ
+const byte TX_PIN = 4;         //emetteur 433 MHZ
+const byte VCC_PIN = 11; //alimentation emetteur
 // PIN SIETTINGS //
 
 const unsigned long TIME = 488;
@@ -65,101 +52,102 @@ boolean teleInfoReceived;
 
 char chksum(char *buff, uint8_t len);
 boolean handleBuffer(char *bufferTeleinfo, int sequenceNumnber);
-char version[17] = "TeleInfo  V 1.00";
+char version[17] = "TeleInfo  V 1.20";
 
 unsigned long PAPP_arrondi;               // PAPP*497/500/16 arrondi
 unsigned long chksum_CM180;
 unsigned long long HCP;
 
-//********** debug
-// char buffer[100];// à  virer ***************
-//**********************************************************************
-
 /**
-   \brief    Send logical "0" over RF
-   \details  azero bit be represented by an off-to-on transition
-   \         of the RF signal at the middle of a clock period.
-   \         Remenber, the Oregon v2.1 protocol add an inverted bit first
-*/
-inline void sendZero(void)
+ * \brief    Send logical "0" over RF
+ * \details  azero bit be represented by an off-to-on transition
+ * \         of the RF signal at the middle of a clock period.
+ * \         Remenber, the Oregon v2.1 protocol add an inverted bit first 
+ */
+inline void sendZero(void) 
 {
   SEND_LOW();
-  delayMicroseconds(TIME);
+  delayMicroseconds(TIME); 
   SEND_HIGH();
   delayMicroseconds(TIME);
 }
 
 /**
-   \brief    Send logical "1" over RF
-   \details  a one bit be represented by an on-to-off transition
-   \         of the RF signal at the middle of a clock period.
-   \         Remenber, the Oregon v2.1 protocol add an inverted bit first
-*/
-inline void sendOne(void)
+ * \brief    Send logical "1" over RF
+ * \details  a one bit be represented by an on-to-off transition
+ * \         of the RF signal at the middle of a clock period.
+ * \         Remenber, the Oregon v2.1 protocol add an inverted bit first 
+ */
+inline void sendOne(void) 
 {
-  SEND_HIGH();
-  delayMicroseconds(TIME);
-  SEND_LOW();
-  delayMicroseconds(TIME);
+   SEND_HIGH();
+   delayMicroseconds(TIME);
+   SEND_LOW();
+   delayMicroseconds(TIME);
 }
 
 
 /**
-   \brief    Send a buffer over RF
-   \param    data   Data to send
-   \param    size   size of data to send
-*/
+ * \brief    Send a buffer over RF
+ * \param    data   Data to send
+ * \param    size   size of data to send
+ */
 void sendData(byte *data, byte size)
 {
-  for (byte i = 0; i < size; ++i)
+  for(byte i = 0; i < size; ++i)
   {
-    (bitRead(data[i], 0)) ? sendOne() : sendZero();
-    (bitRead(data[i], 1)) ? sendOne() : sendZero();
-    (bitRead(data[i], 2)) ? sendOne() : sendZero();
-    (bitRead(data[i], 3)) ? sendOne() : sendZero();
-    (bitRead(data[i], 4)) ? sendOne() : sendZero();
-    (bitRead(data[i], 5)) ? sendOne() : sendZero();
-    (bitRead(data[i], 6)) ? sendOne() : sendZero();
-    (bitRead(data[i], 7)) ? sendOne() : sendZero();
+  (bitRead(data[i], 0)) ? sendOne() : sendZero();
+  (bitRead(data[i], 1)) ? sendOne() : sendZero();
+  (bitRead(data[i], 2)) ? sendOne() : sendZero();
+  (bitRead(data[i], 3)) ? sendOne() : sendZero();
+  (bitRead(data[i], 4)) ? sendOne() : sendZero();
+  (bitRead(data[i], 5)) ? sendOne() : sendZero();
+  (bitRead(data[i], 6)) ? sendOne() : sendZero();
+  (bitRead(data[i], 7)) ? sendOne() : sendZero();    
   }
 }
 
 /**
-   \brief    Send an Oregon message
-   \param    data   The Oregon message
-*/
+ * \brief    Send an Oregon message
+ * \param    data   The Oregon message
+ */
 void sendOregon(byte *data, byte size)
 {
-  sendPreamble();
-  sendData(data, size);
-  sendPostamble();
+    sendPreamble();
+    sendData(data, size);   //mettre 13 a la place de   "size"
+    sendPostamble();
 }
 
 /**
-   \brief    Send preamble
-   \details  The preamble consists of 10 X "1" bits (minimum)
-*/
+ * \brief    Send preamble
+ * \details  The preamble : 10 pulse Ã  1 suffit pour RFXCOM 
+ */
 inline void sendPreamble(void)
-{
-  for (byte i = 0; i < 10; ++i)  //OWL CM180
+{  
+  for(byte i = 0; i < 10; ++i)   //OREGON V3 
   {
     sendOne();
-  }
+  } 
 }
 
 /**
-   \brief    Send postamble
-*/
+ * \brief    Send postamble
+ * \details  The postamble consists of 4 "0" bits
+ */
 inline void sendPostamble(void)
 {
-
-  for (byte i = 0; i < 4 ; ++i)  //OWL CM180
+ for(byte i = 0; i <4 ; ++i)   
   {
     sendZero() ;
   }
+
+  // Ajout suite commentaire http://connectingstuff.net/blog/encodage-protocoles-oregon-scientific-sur-arduino/#comment-61955 
   SEND_LOW();
   delayMicroseconds(TIME);
 }
+
+
+/******************************************************************/
 
 //=================================================================================================================
 // Basic constructor
@@ -283,7 +271,7 @@ boolean handleBuffer(char *bufferTeleinfo, int sequenceNumnber)
   
   Label = Buffer.substring(0,Idx);
   Value = Buffer.substring(Idx + 1);
-  
+  /*
 Serial.print(F("LG = "));
 Serial.print(BufLg);
 Serial.print(F(" Idx = "));
@@ -293,7 +281,7 @@ Serial.print(Label);
 Serial.print(F("* Value = *"));
 Serial.print(Value);
 Serial.println(F("*"));
-
+  */
   if (Label.equalsIgnoreCase("ADCO")) {
     ADCO = Value;
   }
@@ -343,10 +331,12 @@ Serial.println(F("*"));
  if (Label.equalsIgnoreCase("MOTDETAT")) {
     MOTDETAT=Value;
   }
+ 
   Serial.print(F("LABEL : "));
   Serial.print(Label);
   Serial.print(F(" : Valeur : "));
   Serial.println(Value);
+ 
   /*
     switch(sequenceNumnber)
     {
@@ -510,79 +500,93 @@ void displayTeleInfo()
 void encodeur_OWL_CM180()
 {
 
-  if (PTEC.substring(1, 2) == "C")
-  {
-    HCP = (HCHC * 223666LL) / 1000LL;
-  }
-  else
-  {
-    HCP = (HCHP * 223666LL) / 1000LL;
-  }
+  //Le compteur de production ne positionne ni PTEC ni HCHC ni HCHP, mais alimente BASE
+  if (HCHC == 0 && HCHP == 0){PTEC="HPP.";}
+
 
   OregonMessageBuffer[0] = 0x62; // imposé
   OregonMessageBuffer[1] = 0x80; // GH   G= non décodé par RFXCOM,  H = Count
 
-
-  //OregonMessageBuffer[2] =0x3C; // IJ  ID compteur : "L IJ 2" soit (L & 1110 )*16*16*16+I*16*16+J*16+2
-  // si heure creuse compteur 3D, si HP compteur 3C
-  if (PTEC.substring(1, 2) == "C")
+  if (PTEC.substring(1, 2) == "P")
   {
-    OregonMessageBuffer[2] = 0x3D;
-    // Serial.print(F("HEURE CREUSE 0x3D"));  //débug *******************************
+    //OregonMessageBuffer[2] =0x3C; // IJ  ID compteur : "L IJ 2" soit (L & 1110 )*16*16*16+I*16*16+J*16+2
+    // Si prod 3C, si heure creuse compteur 3D, si HP compteur 3E
+    HCP = (BASE * 223666LL) / 1000LL;
+    OregonMessageBuffer[2] = 0x3C;
   }
   else
   {
-    OregonMessageBuffer[2] = 0x3C;
+    if (PTEC.substring(1, 2) == "C")
+    {
+      HCP = (HCHC * 223666LL) / 1000LL;
+      OregonMessageBuffer[2] = 0x3D;
+    }
+    else
+    {
+      HCP = (HCHP * 223666LL) / 1000LL;
+      OregonMessageBuffer[2] = 0x3E;
+    }
   }
 
+
   //OregonMessageBuffer[3] =0xE1; // KL  K sert pour puissance instantanée, L sert pour identifiant compteur
-  PAPP_arrondi = long(long(PAPP) * 497 / 500 / 16);
+  PAPP_arrondi=long(long(PAPP)*497L/500L/16L);
 
   // améliore un peu la précision de la puissance apparente encodée (le CM180 transmet la PAPP * 497/500/16)
-  if ((float(PAPP) * 497 / 500 / 16 - PAPP_arrondi) > 0.5)
+  if ((float(PAPP)*497/500/16-PAPP_arrondi)>0.5)
   {
     ++PAPP_arrondi;
   }
 
-  OregonMessageBuffer[3] = (PAPP_arrondi & 0x0F) << 4;
-
-  //OregonMessageBuffer[4] =0x00; // MN  puissance instantée = (P MN K)*16 soit : (P*16*16*16 + M*16*16 +N*16+K)*16*500/497. attention RFXCOM corrige cette valeur en multipliant par 16 puis 500/497.
-  OregonMessageBuffer[4] = (PAPP_arrondi >> 4) & 0xFF;
-
+  OregonMessageBuffer[3]=(PAPP_arrondi&0x0F)<<4;
+  
+  //OregonMessageBuffer[4] =0x00; // MN  puissance instantanÃ©e = (P MN K)*16 soit : (P*16*16*16 + M*16*16 +N*16+K)*16*500/497. attention RFXCOM corrige cette valeur en multipliant par 16 puis 500/497.
+  OregonMessageBuffer[4]=(PAPP_arrondi>>4)&0xFF;
+  
   //OregonMessageBuffer[5] =0xCD; // OP  Total conso :  YZ WX UV ST QR O : Y*16^10 + Z*16^9..R*16 + O
-  OregonMessageBuffer[5] = ((PAPP_arrondi >> 12) & 0X0F) + ((HCP & 0x0F) << 4);
-
+  OregonMessageBuffer[5] =((PAPP_arrondi>>12)&0X0F)+((HCP&0x0F)<<4);
+  
   //OregonMessageBuffer[6] =0x97; // QR sert total conso
-  OregonMessageBuffer[6] = (HCP >> 4) & 0xFF;
-
+  OregonMessageBuffer[6] =(HCP>>4)&0xFF;
+  
   //OregonMessageBuffer[7] =0xCE; // ST sert total conso
-  OregonMessageBuffer[7] = (HCP >> 12) & 0xFF; // ST sert total conso
-
+  OregonMessageBuffer[7] =(HCP>>12)&0xFF; // ST sert total conso
+  
   //OregonMessageBuffer[8] =0x12; // UV sert total conso
-  OregonMessageBuffer[8] = (HCP >> 20) & 0xFF; // UV sert total conso
-
+  OregonMessageBuffer[8] =(HCP>>20)&0xFF; // UV sert total conso
+  
   //OregonMessageBuffer[9] =0x00; // WX sert total conso
-  OregonMessageBuffer[9] = (HCP >> 28) & 0xFF;
-
+  OregonMessageBuffer[9] =(HCP>>28)&0xFF; 
+  
   //OregonMessageBuffer[10] =0x00; //YZ sert total conso
-  OregonMessageBuffer[10] = (HCP >> 36) & 0xFF;
-
-
-  chksum_CM180 = 0;
-  for (byte i = 0; i < 11; i++)
-  {
-    chksum_CM180 += long(OregonMessageBuffer[i] & 0x0F) + long(OregonMessageBuffer[i] >> 4) ;
+  OregonMessageBuffer[10] =(HCP>>36)&0xFF; 
+  
+  
+    chksum_CM180= 0;
+    for (byte i=0; i<11; i++) 
+    {
+      chksum_CM180 += long(OregonMessageBuffer[i]&0x0F) + long(OregonMessageBuffer[i]>>4) ;
+    }
+    
+  chksum_CM180 -=2; // = =b*16^2 + d*16+ a ou [b d a]
+  /*
+  Serial.print(F(" chksum_CM180 HEX :"));
+  Serial.println(chksum_CM180,HEX);
+  */
+  
+  //OregonMessageBuffer[11] =0xD0; //ab sert CHECKSUM  somme(nibbles ci-dessus)=b*16^2 + d*16+ a + 2
+  OregonMessageBuffer[11] =((chksum_CM180&0x0F)<<4) + ((chksum_CM180>>8)&0x0F);
+  
+  //OregonMessageBuffer[12] =0xF6; //cd  d sert checksum, a non dÃ©codÃ© par RFXCOM
+  OregonMessageBuffer[12] =(int(chksum_CM180>>4)&0x0F);  //C = 0 mais inutilisÃ©
+  
+ /*
+   for (byte i = 0; i <=sizeof(OregonMessageBuffer); ++i)   {     
+     Serial.print(OregonMessageBuffer[i] >> 4, HEX);
+     Serial.println(OregonMessageBuffer[i] & 0x0F, HEX);
+    }
+*/
   }
-
-  chksum_CM180 -= 2; // = =b*16^2 + d*16+ a ou [b d a]
-
-  //OregonMessageBuffer[11] =0xD0; //ab sert CHECKSUM  somme(nibbles ci-dessuus)=b*16^2 + d*16+ a + 2
-  OregonMessageBuffer[11] = ((chksum_CM180 & 0x0F) << 4) + ((chksum_CM180 >> 8) & 0x0F);
-
-  //OregonMessageBuffer[12] =0xF6; //cd  d sert checksum, a non décodé par RFXCOM
-  OregonMessageBuffer[12] = (int(chksum_CM180 >> 4) & 0x0F); //C = 0 mais inutilisé
-
-}
 
 boolean Debug()
 {
@@ -626,6 +630,8 @@ void setup() {
   Serial.begin(115200);   // pour la console, enlever les barres de commentaires ci dessous pour displayTeleInfo()
   TeleInfo(version);
   pinMode(TX_PIN, OUTPUT);    //emetteur 433 MHZ
+  pinMode(VCC_PIN, OUTPUT);
+  analogWrite(VCC_PIN,255);
 }
 
 void loop() {
@@ -638,13 +644,15 @@ void loop() {
   {
     encodeur_OWL_CM180();
     mySerial->end(); //NECESSAIRE !! arrête les interruptions de softwareserial (lecture du port téléinfo) pour émission des trames OWL
+    analogWrite(VCC_PIN,0);
     sendOregon(OregonMessageBuffer, sizeof(OregonMessageBuffer));    // Send the Message over RF
+    analogWrite(VCC_PIN,255);
     mySerial->begin(1200);  //NECESSAIRE !! relance les interuptions pour la lecture du port téléinfo
     displayTeleInfo();  // console pour voir les trames téléinfo
 
     // ajout d'un delais de 12s apres chaque trame envoyés pour éviter d'envoyer
     // en permanence des informations à domoticz et de créer des interférances
-    delay(12000);
+    delay(30000);
   }
 
 }
